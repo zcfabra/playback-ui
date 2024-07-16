@@ -75,7 +75,9 @@ let make = () => {
       {switch fileContent {
       | None => <> </>
       | Some(f) =>
-        <div className="w-3/12 h-36 absolute bottom-8 right-8 bg-zinc-800 rounded-xl">
+        <div className="w-3/12 h-36 flex flex-col absolute bottom-8 right-8 bg-zinc-800 rounded-xl">
+        <span className="text-lg mx-4 my-2 text-zinc-300 font-medium">{"Locals" -> React.string}</span>
+
           {
             let els =
               Belt.Option.getUnsafe(f.stack[selectedIx]).local_vars
@@ -94,8 +96,8 @@ let make = () => {
                 switch rv {
                 | Null => <> </>
                 | val =>
-                  <div className="px-4 text-zinc-300">
-                    <span> {"return_val: "->React.string} </span>
+                  <div className="px-4 text-zinc-200 font-semibold">
+                    <span> {"returning: "->React.string} </span>
                     <span> {val->Js.Json.stringify->React.string} </span>
                   </div>
                 }
