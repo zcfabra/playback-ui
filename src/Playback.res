@@ -3,15 +3,16 @@ type json = Js.Json.t
 
 module Playback = {
   type frame = {
+    frame_type: string,
     line_no: int,
     file_name: string,
-    func_name: string,
-    return_val: option<json>,
-    local_vars: Js.Dict.t<json>,
+    fn_name: string,
+    locals: Js.Dict.t<json>,
+    time_taken: option<float>
   }
 
   type full = {
-    stack: array<frame>,
+    frames: array<frame>,
     files: Js.Dict.t<string>,
   }
 
@@ -19,31 +20,37 @@ module Playback = {
     switch src {
     | Object(potentialFrame) =>
       switch (
+        Js.Dict.get(potentialFrame, "frame_type"),
         Js.Dict.get(potentialFrame, "line_no"),
         Js.Dict.get(potentialFrame, "file_name"),
-        Js.Dict.get(potentialFrame, "func_name"),
-        Js.Dict.get(potentialFrame, "return_val"),
+        Js.Dict.get(potentialFrame, "fn_name"),
         Js.Dict.get(potentialFrame, "locals"),
+        Js.Dict.get(potentialFrame, "time_taken"),
       ) {
       | (
+          Some(String(frame_type)),
           Some(Number(line)),
           Some(String(file_name)),
-          Some(String(func_name)),
-          Some(return_val),
-          Some(Object(local_vars)),
+          Some(String(fn_name)),
+          Some(Object(locals)),
+          time_taken,
         ) => {
           let frame = {
+            frame_type: frame_type,
             line_no: Belt.Float.toInt(line),
-            func_name,
+            fn_name,
             file_name,
-            return_val: Some(return_val),
-            local_vars,
+            locals,
+            time_taken: switch time_taken{
+              | Some(Number(tt)) => Some(tt)
+              | None | Some(_) => None
+            }
           }
           Ok(frame)
         }
       | _ => Error("Malformed Playback File")
       }
-    | _ => Error("")
+    | _ => Error("Err")
     }
   }
   let parseFileMap: Js.Dict.t<json> => result<Js.Dict.t<string>, string> = src => {
@@ -60,13 +67,13 @@ module Playback = {
   let parsePlayback: json => result<full, string> = src => {
     switch src {
     | Object(d) =>
-      switch (Js.Dict.get(d, "files"), Js.Dict.get(d, "stack")) {
+      switch (Js.Dict.get(d, "files"), Js.Dict.get(d, "frames")) {
       | (Some(Object(fileMap)), Some(Array(framesToParse))) =>
         switch parseFileMap(fileMap) {
         | Error(e) => Error(e)
         | Ok(fmap) => {
             let playback = {
-              stack: framesToParse->Array.map(parseFrame)->Utils.keepOks,
+              frames: framesToParse->Array.map(parseFrame)->Utils.keepOks,
               files: fmap,
             }
             Ok(playback)

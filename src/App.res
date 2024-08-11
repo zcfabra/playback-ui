@@ -1,14 +1,23 @@
 open Playback
 type json = Js.Json.t
 
-type window
+// type window
 type e = {key: string}
 @val @scope("JSON") external parseJson: string => json = "parse"
-@val external window: window = "window"
+// @val external window: window = "window"
+
 @scope("window") @val
 external addEventListener: (string, e => unit) => unit = "addEventListener"
 @scope("window") @val
 external removeEventListener: (string, e => unit) => unit = "removeEventListener"
+
+type scrollIntoViewOptions = {
+  behaviour: string,
+  block: string,
+  inline: string,
+}
+
+@send external scrollIntoView: (Dom.element, scrollIntoViewOptions) => unit = "scrollIntoView"
 
 module FileReader = {
   type t
@@ -24,6 +33,7 @@ module FileReader = {
 let make = () => {
   let (fileContent: option<Playback.full>, setFileContent) = React.useState(() => None)
   let (selectedIx, setSelectedIx) = React.useState(() => 0)
+  let selectedLineRef = React.useRef(Nullable.null)
 
   let handleKeyDown = (e, maxBounds) => {
     switch e.key {
@@ -36,12 +46,20 @@ let make = () => {
     switch fileContent {
     | None => None
     | Some(f) => {
-        let maxBounds = Belt.Array.length(f.stack) - 1
+        let maxBounds = Belt.Array.length(f.frames) - 1
         addEventListener("keydown", e => e->handleKeyDown(maxBounds))
         Some(() => removeEventListener("keydown", e => e->handleKeyDown(maxBounds)))
       }
     }
   }, [fileContent])
+
+  React.useEffect1(() => {
+    switch selectedLineRef.current->Js.Nullable.toOption {
+    | Some(el) => scrollIntoView(el, {behaviour: "smooth", block: "center", inline: "center"})
+    | None => ()
+    }
+    None
+  }, [selectedIx])
 
   let read_file = f => {
     let reader = FileReader.new()
@@ -75,12 +93,11 @@ let make = () => {
       {switch fileContent {
       | None => <> </>
       | Some(f) =>
-        <div className="w-3/12 h-36 flex flex-col absolute bottom-8 right-8 bg-zinc-800 rounded-xl">
-        <span className="text-lg mx-4 my-2 text-zinc-300 font-medium">{"Locals" -> React.string}</span>
-
+        <div className="w-3/12 h-36 flex flex-col absolute bottom-8 right-8 bg-zinc-800 rounded-xl ">
+          <span className="text-lg mx-4 my-2 text-zinc-300 font-medium"> {""->React.string} </span>
           {
             let els =
-              Belt.Option.getUnsafe(f.stack[selectedIx]).local_vars
+              Belt.Option.getUnsafe(f.frames[selectedIx]).locals
               ->Js.Dict.entries
               ->Array.map(((name, val)) =>
                 <div className="px-4 text-zinc-300">
@@ -90,15 +107,14 @@ let make = () => {
               )
             Array.push(
               els,
-              switch Belt.Option.getUnsafe(f.stack[selectedIx]).return_val {
+              switch Belt.Option.getUnsafe(f.frames[selectedIx]).time_taken {
               | None => <> </>
               | Some(rv) =>
                 switch rv {
-                | Null => <> </>
                 | val =>
                   <div className="px-4 text-zinc-200 font-semibold">
-                    <span> {"returning: "->React.string} </span>
-                    <span> {val->Js.Json.stringify->React.string} </span>
+                    <span> {"Time Taken: "->React.string} </span>
+                    <span> {val->Belt.Float.toString->React.string} </span>
                   </div>
                 }
               },
@@ -107,36 +123,42 @@ let make = () => {
           }
         </div>
       }}
-      <div className="w-4/12 flex flex-col">
+      <div className="w-4/12 h-32 flex flex-col overflow-y-auto">
         {switch fileContent {
         | None => <> </>
         | Some(f) =>
-          f.stack
+          f.frames
           ->Array.mapWithIndex((el, ix) => <Frame isSelected={ix == selectedIx} frame=el />)
           ->React.array
         }}
       </div>
-      <div className="w-8/12 text-zinc-300 px-8">
+      <div className="w-8/12 text-zinc-300 px-8 h-screen overflow-y-auto ">
         <pre className="text-zinc-300 w-full">
           {switch fileContent {
           | None => <> </>
           | Some(f) =>
-            switch Js.Dict.get(f.files, Belt.Option.getUnsafe(f.stack[selectedIx]).file_name) {
-            | None => <span> {React.string("")} </span>
+            switch Js.Dict.get(f.files, Belt.Option.getUnsafe(f.frames[selectedIx]).file_name) {
+            | None => <span> {React.string("[FILE NOT FOUND]")} </span>
             | Some(code) =>
               code
               ->Js.String2.split("\n")
-              ->Array.mapWithIndex((el, ix) =>
-                <React.Fragment key={ix->Belt.Int.toString}>
-                  <span
-                    className={`${ix == Belt.Option.getUnsafe(f.stack[selectedIx]).line_no - 1
-                        ? "bg-red-500"
-                        : ""}`}>
-                    {el->React.string}
-                  </span>
-                  <br />
-                </React.Fragment>
-              )
+              ->Array.mapWithIndex((el, ix) => {
+                let is_selected = ix == Belt.Option.getUnsafe(f.frames[selectedIx]).line_no - 1
+
+                if is_selected {
+                  <React.Fragment key={ix->Belt.Int.toString}>
+                    <span ref={ReactDOM.Ref.domRef(selectedLineRef)} className="bg-red-500">
+                      {el->React.string}
+                    </span>
+                    <br />
+                  </React.Fragment>
+                } else {
+                  <React.Fragment key={ix->Belt.Int.toString}>
+                    <span> {el->React.string} </span>
+                    <br />
+                  </React.Fragment>
+                }
+              })
               ->React.array
             }
           }}
